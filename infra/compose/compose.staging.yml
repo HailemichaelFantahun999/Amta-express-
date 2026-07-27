@@ -28,6 +28,7 @@ services:
       - ../nginx/staging:/etc/nginx/conf.d:ro
       - static_data:/opt/amta/static:ro
       - media_data:/opt/amta/media:ro
+      - /opt/amta/certs:/etc/nginx/certs:ro
     ports:
       - "80:80"
       - "443:443"
