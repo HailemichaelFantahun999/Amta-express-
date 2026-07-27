@@ -1,0 +1,84 @@
+name: Tag Release
+
+# Triggered by pushing a semantic version tag (e.g. v1.2.0) on a commit
+# already merged to main. Does NOT rebuild anything — it re-labels the
+# exact image build-production.yml already built and pushed for this
+# commit, adding the human-readable version tag alongside the sha- tag.
+# This preserves "Build Once, Deploy Many": the bits deployed to production
+# are proven identical to what was validated, never rebuilt at tag time.
+#
+# Prerequisite: build-production.yml must have already completed
+# successfully for this commit (i.e. it was already pushed to main and the
+# build finished) before you create and push the tag. If you tag a commit
+# whose image hasn't been built yet, this workflow will fail to find it.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  tag-release:
+    name: Re-tag existing image with version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute identifiers
+        id: vars
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "commit_tag=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+          # Docker/GHCR image names must be all-lowercase. GitHub org/user
+          # names can contain uppercase letters, so this must be normalized
+          # before use in any image reference.
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "backend_image=ghcr.io/${OWNER_LC}/amta-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=ghcr.io/${OWNER_LC}/amta-frontend" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify source images exist
+        run: |
+          docker buildx imagetools inspect ${{ steps.vars.outputs.backend_image }}:${{ steps.vars.outputs.commit_tag }} \
+            || (echo "::error::No backend image found for ${{ steps.vars.outputs.commit_tag }}. Did build-production.yml finish for this commit first?" && exit 1)
+          docker buildx imagetools inspect ${{ steps.vars.outputs.frontend_image }}:${{ steps.vars.outputs.commit_tag }} \
+            || (echo "::error::No frontend image found for ${{ steps.vars.outputs.commit_tag }}. Did build-production.yml finish for this commit first?" && exit 1)
+
+      - name: Add version tag to backend image (no rebuild)
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ steps.vars.outputs.backend_image }}:${{ steps.vars.outputs.version }} \
+            ${{ steps.vars.outputs.backend_image }}:${{ steps.vars.outputs.commit_tag }}
+
+      - name: Add version tag to frontend image (no rebuild)
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ steps.vars.outputs.frontend_image }}:${{ steps.vars.outputs.version }} \
+            ${{ steps.vars.outputs.frontend_image }}:${{ steps.vars.outputs.commit_tag }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.version }}
+          generate_release_notes: true
+          body: |
+            **Images for this release:**
+            - `${{ steps.vars.outputs.backend_image }}:${{ steps.vars.outputs.version }}`
+            - `${{ steps.vars.outputs.frontend_image }}:${{ steps.vars.outputs.version }}`
+
+            To deploy: **Actions → Deploy to Production → Run workflow**, version = `${{ steps.vars.outputs.version }}`

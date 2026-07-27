@@ -1,0 +1,135 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop, staging, "hotfix/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-lint-test:
+    name: Backend Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: amta_test
+          POSTGRES_USER: amta
+          POSTGRES_PASSWORD: amta
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U amta"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DJANGO_SECRET_KEY: ci-test-key
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      POSTGRES_DB: amta_test
+      POSTGRES_USER: amta
+      POSTGRES_PASSWORD: amta
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: apps/backend/requirements/local.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements/local.txt
+
+      - name: Lint (flake8)
+        run: |
+          pip install flake8
+          flake8 . --max-line-length=120 --exclude=migrations
+
+      - name: Check formatting (black)
+        run: |
+          pip install black
+          black --check .
+
+      - name: Run migrations check
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run tests
+        run: python manage.py test
+
+  frontend-lint-build:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check & build
+        run: npm run build
+
+  docker-validate:
+    name: Docker & Compose Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create placeholder env files for validation
+        run: |
+          # Local compose references relative paths in configs/local/
+          cp configs/local/backend.env.example configs/local/backend.env
+          cp configs/local/frontend.env.example configs/local/frontend.env
+          cp configs/local/postgres.env.example configs/local/postgres.env
+
+          # Staging/production compose reference an absolute server path
+          sudo mkdir -p /opt/amta/config
+          sudo touch /opt/amta/config/backend.env
+          sudo touch /opt/amta/config/frontend.env
+          sudo touch /opt/amta/config/postgres.env
+          sudo chmod 644 /opt/amta/config/*.env
+
+      - name: Validate local compose config
+        run: docker compose -f infra/compose/compose.local.yml config -q
+
+      - name: Validate staging compose config
+        run: docker compose -f infra/compose/compose.staging.yml config -q
+        env:
+          IMAGE_TAG: ci-validate
+
+      - name: Validate production compose config
+        run: docker compose -f infra/compose/compose.production.yml config -q
+        env:
+          IMAGE_TAG: ci-validate
+
+      - name: Build backend image (no push)
+        run: docker build -t amta-backend:ci apps/backend
+
+      - name: Build frontend image (no push)
+        run: docker build -t amta-frontend:ci apps/frontend

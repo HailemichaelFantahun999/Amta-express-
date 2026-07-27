@@ -1,0 +1,43 @@
+name: amta-production
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: /opt/amta/config/postgres.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [amta-network]
+
+  backend:
+    image: ghcr.io/${IMAGE_OWNER}/amta-backend:${IMAGE_TAG}
+    env_file: /opt/amta/config/backend.env
+    volumes:
+      - static_data:/app/static
+      - media_data:/app/media
+    depends_on: [postgres]
+    networks: [amta-network]
+
+  frontend:
+    image: ghcr.io/${IMAGE_OWNER}/amta-frontend:${IMAGE_TAG}
+    networks: [amta-network]
+
+  nginx:
+    image: nginx:1.28-alpine
+    volumes:
+      - ../nginx/common:/etc/nginx/common:ro
+      - ../nginx/production:/etc/nginx/conf.d:ro
+      - static_data:/opt/amta/static:ro
+      - media_data:/opt/amta/media:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on: [backend, frontend]
+    networks: [amta-network]
+
+networks:
+  amta-network:
+
+volumes:
+  postgres_data:
+  static_data:
+  media_data:

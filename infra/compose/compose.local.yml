@@ -1,0 +1,43 @@
+name: amta-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: ../../configs/local/postgres.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [amta-network]
+
+  backend:
+    build:
+      context: ../../apps/backend
+      args:
+        REQUIREMENTS_FILE: requirements/local.txt
+    env_file: ../../configs/local/backend.env
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ../../apps/backend:/app
+    depends_on: [postgres]
+    networks: [amta-network]
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ../../apps/frontend
+      dockerfile: Dockerfile.dev
+    env_file: ../../configs/local/frontend.env
+    volumes:
+      - ../../apps/frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    networks: [amta-network]
+
+networks:
+  amta-network:
+
+volumes:
+  postgres_data:

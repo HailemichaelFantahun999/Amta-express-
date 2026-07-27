@@ -1,0 +1,88 @@
+name: Build Production Images
+
+# Runs automatically on every push to main. Only BUILDS and PUSHES images —
+# it never touches the production server. This is intentional: on GitHub Free
+# with a private repo, "Required reviewers" environment protection isn't
+# available, so the approval gate is implemented instead by requiring a
+# separate, manually-triggered workflow (deploy-production.yml) to actually
+# deploy. Splitting build from deploy means review time is spent looking at
+# an already-built, already-tagged image — not waiting on a rebuild.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version identifier and image names
+        id: vars
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "version=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Docker/GHCR image names must be all-lowercase. GitHub usernames
+          # and org names can contain uppercase letters (e.g. "Texontech"),
+          # so we force it to lowercase here before using it in any tag.
+          # There is no built-in lowercase() expression function in GitHub
+          # Actions, so this must be done in a shell step.
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "backend_image=ghcr.io/${OWNER_LC}/amta-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=ghcr.io/${OWNER_LC}/amta-frontend" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          push: true
+          build-args: |
+            REQUIREMENTS_FILE=requirements/production.txt
+          tags: |
+            ${{ steps.vars.outputs.backend_image }}:${{ steps.vars.outputs.version }}
+            ${{ steps.vars.outputs.backend_image }}:production-candidate
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/frontend
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.frontend_image }}:${{ steps.vars.outputs.version }}
+            ${{ steps.vars.outputs.frontend_image }}:production-candidate
+
+      - name: Summary
+        run: |
+          echo "### Image built: \`${{ steps.vars.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This is a release candidate, not yet an official version." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**To make this an official release:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "git tag v1.2.0   # pick the correct next version" >> "$GITHUB_STEP_SUMMARY"
+          echo "git push origin v1.2.0" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "This triggers tag-release.yml, which re-labels this exact image (no rebuild) and creates a GitHub Release." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**To deploy immediately without an official version** (e.g. testing), you can also use \`${{ steps.vars.outputs.version }}\` directly in Deploy to Production." >> "$GITHUB_STEP_SUMMARY"

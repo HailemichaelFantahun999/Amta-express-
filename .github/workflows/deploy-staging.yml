@@ -1,0 +1,106 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [staging]
+
+concurrency:
+  group: staging
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+      image_owner: ${{ steps.vars.outputs.image_owner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag and owner
+        id: vars
+        run: |
+          echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+          # Docker/GHCR image names must be all-lowercase. GitHub org/user
+          # names can contain uppercase letters, so this must be normalized
+          # before use in any image reference. There is no built-in
+          # lowercase() expression function in GitHub Actions, hence the
+          # shell step.
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image_owner=${OWNER_LC}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          push: true
+          build-args: |
+            REQUIREMENTS_FILE=requirements/staging.txt
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.image_owner }}/amta-backend:${{ steps.vars.outputs.image_tag }}
+            ghcr.io/${{ steps.vars.outputs.image_owner }}/amta-backend:staging
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/frontend
+          push: true
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.image_owner }}/amta-frontend:${{ steps.vars.outputs.image_tag }}
+            ghcr.io/${{ steps.vars.outputs.image_owner }}/amta-frontend:staging
+
+  deploy:
+    name: Deploy to Staging Server
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.STAGING_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy compose & nginx config to server
+        run: |
+          scp -i ~/.ssh/deploy_key -r infra/compose infra/nginx \
+            "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/amta/"
+
+      - name: Deploy via SSH
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          IMAGE_OWNER: ${{ needs.build-and-push.outputs.image_owner }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}" bash -s << EOF
+            set -euo pipefail
+            cd /opt/amta
+            export IMAGE_TAG=${IMAGE_TAG}
+            export IMAGE_OWNER=${IMAGE_OWNER}
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            docker compose -f compose/compose.staging.yml pull
+            docker compose -f compose/compose.staging.yml up -d
+            docker compose -f compose/compose.staging.yml exec -T backend python manage.py migrate --noinput
+          EOF
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -sf "https://staging.amtaexpress.com/health/" || (echo "Health check failed" && exit 1)

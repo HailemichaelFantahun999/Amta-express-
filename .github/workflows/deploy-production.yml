@@ -1,0 +1,83 @@
+name: Deploy to Production
+
+# Manual-only trigger. This IS the approval gate: someone must open the
+# Actions tab, click "Run workflow", and type in the version to deploy
+# (copied from the build-production.yml run they've reviewed).
+#
+# This replaces GitHub's "Required reviewers" environment protection, which
+# is not available on GitHub Free for private repositories.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Image version to deploy. Use a semantic version (e.g. v1.2.0) for
+          an official release — see the tag-release.yml run or GitHub
+          Releases page. Use sha-<commit> only for testing an unreleased
+          candidate build; this should not be the normal path to production.
+        required: true
+        type: string
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm target version
+        id: vars
+        run: |
+          echo "Deploying version: ${{ inputs.version }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+          # Docker/GHCR image names must be all-lowercase. GitHub org/user
+          # names can contain uppercase letters, so this must be normalized
+          # before use in any image reference.
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image_owner=${OWNER_LC}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy compose & nginx config to server
+        run: |
+          scp -i ~/.ssh/deploy_key -r infra/compose infra/nginx \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/opt/amta/"
+
+      - name: Deploy via SSH
+        env:
+          IMAGE_TAG: ${{ inputs.version }}
+          IMAGE_OWNER: ${{ steps.vars.outputs.image_owner }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" bash -s << EOF
+            set -euo pipefail
+            cd /opt/amta
+            export IMAGE_TAG=${IMAGE_TAG}
+            export IMAGE_OWNER=${IMAGE_OWNER}
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            docker compose -f compose/compose.production.yml pull
+            docker compose -f compose/compose.production.yml up -d
+            docker compose -f compose/compose.production.yml exec -T backend python manage.py migrate --noinput
+          EOF
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -sf "https://www.amtaexpress.com/health/" || (echo "Health check failed" && exit 1)
+
+      - name: Record deployment
+        run: |
+          echo "Deployed ${{ inputs.version }} to production by ${{ github.actor }} on $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
