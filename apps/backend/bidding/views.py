@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from users.models import User
-from features.notifications.models import Notification
+from notifications.models import Notification
 from bidding.models import (
     Bid,
     BidNegotiation,
@@ -32,7 +32,7 @@ from bidding.serializers import (
     BidSerializer,
 )
 from fares.fare_utils import calculate_bid_amount
-from features.notifications.serializers import NotificationSerializer
+from notifications.serializers import NotificationSerializer
 
 logger = logging.getLogger(__name__)
 

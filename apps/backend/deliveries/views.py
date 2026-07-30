@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 from users.models import User
 from features.auth.sms import format_phone_for_sms, send_sms
 from deliveries.assignment import assign_driver
-from features.notifications.notifications_service import create_notification
+from notifications.notifications_service import create_notification
 from deliveries.models import Delivery, DeliveryEvent
 from deliveries.serializers import (
     DeliveryActionSerializer,

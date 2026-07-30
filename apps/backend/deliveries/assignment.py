@@ -8,9 +8,9 @@ from django.utils import timezone
 from users.models import User
 from features.auth.sms import format_phone_for_sms, send_sms
 from deliveries.models import Delivery, DeliveryEvent
-from features.notifications.models import Notification
+from notifications.models import Notification
 from bidding.models import BidRequest
-from features.notifications.notifications_service import create_notification
+from notifications.notifications_service import create_notification
 
 
 def parse_lat_lng(value):
