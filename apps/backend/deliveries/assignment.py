@@ -9,7 +9,7 @@ from users.models import User
 from features.auth.sms import format_phone_for_sms, send_sms
 from deliveries.models import Delivery, DeliveryEvent
 from features.notifications.models import Notification
-from features.bidding.models import BidRequest
+from bidding.models import BidRequest
 from features.notifications.notifications_service import create_notification
 
 
@@ -693,7 +693,7 @@ def create_bid_request(delivery, radius_km=None, customer_coords=None):
         ],
     )
 
-    from features.bidding.bidding_notify import notify_bidding_open
+    from bidding.bidding_notify import notify_bidding_open
 
     notify_bidding_open(bid_request)
 
