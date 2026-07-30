@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 
 
-class UsersConfig(AppConfig):
+class DeliveriesConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "users"
-    label = "users"
+    name = "deliveries"
+    label = "deliveries"
