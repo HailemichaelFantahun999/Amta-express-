@@ -1,5 +1,5 @@
-from features.notifications.notifications_service import create_notification
-from features.notifications.models import Notification
+from notifications.notifications_service import create_notification
+from notifications.models import Notification
 
 
 def _customer_link():

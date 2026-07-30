@@ -1,7 +1,7 @@
 from deliveries.models import Delivery, DeliveryEvent
 from bidding.models import Bid, BidRequest
-from features.notifications.models import Notification
-from features.notifications.notifications_service import create_notification
+from notifications.models import Notification
+from notifications.notifications_service import create_notification
 
 
 def award_bid(bid_request, bid, awarded_by):

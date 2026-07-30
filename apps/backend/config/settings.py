@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "vehicles",
     "fares",
     "deliveries",
+    "notifications",
     "bidding",
     # Business apps will be registered here as they are created.
 ]
