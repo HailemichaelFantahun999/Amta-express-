@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "users",
     "vehicles",
+    "fares",
     # Business apps will be registered here as they are created.
 ]
 
