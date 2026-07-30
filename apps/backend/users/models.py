@@ -100,7 +100,7 @@ class User(AbstractUser):
         return f"{self.get_full_name() or self.email} ({self.role})"
 
     def calculate_average_rating(self):
-        from features.deliveries.models import DriverRating
+        from deliveries.models import DriverRating
 
         ratings = DriverRating.objects.filter(driver=self)
         if ratings.exists():
