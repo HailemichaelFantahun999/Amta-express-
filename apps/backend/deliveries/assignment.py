@@ -406,7 +406,7 @@ def reassign_delivery(delivery, reason="timeout"):
             actor=previous_driver,
             event_type=DeliveryEvent.EventType.DECLINED,
             message=(
-                f'Driver {previous_driver.get_full_name().strip() or previous_driver.email} '
+                f"Driver {previous_driver.get_full_name().strip() or previous_driver.email} "
                 f'{"timed out" if reason == "timeout" else "declined"} assignment.'
             ),
         )
@@ -431,7 +431,7 @@ def reassign_delivery(delivery, reason="timeout"):
     if not next_driver:
         delivery.status = Delivery.Status.PENDING_ASSIGNMENT
         delivery.latest_note = (
-            f'No available drivers after '
+            f"No available drivers after "
             f'{"timeout" if reason == "timeout" else "decline"}'
         )
         delivery.assigned_driver = None
