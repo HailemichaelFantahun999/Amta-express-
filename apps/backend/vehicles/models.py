@@ -75,7 +75,7 @@ class VehicleCategory(models.Model):
         verbose_name_plural = "Vehicle Categories"
 
     def save(self, *args, **kwargs):
-        from features.fares.fare_utils import sync_category_rates
+        from fares.fare_utils import sync_category_rates
 
         sync_category_rates(self)
         super().save(*args, **kwargs)
