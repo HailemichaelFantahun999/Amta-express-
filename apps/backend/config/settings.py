@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "users",
+    "vehicles",
     # Business apps will be registered here as they are created.
 ]
 
